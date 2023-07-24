@@ -48,7 +48,7 @@ searchAndCopyFolder(targetFolder, thePackage);
 for (var i=0; i < allFlowRefList.length; i++) {
 	var flowRef = allFlowRefList[i];
 	WScript.Echo( "allFlowRefList[" + i + "] " + ",name=" + flowRef.name + ",guid=" + flowRef.guid 
-	               + ",refFlowName=" + flowRef.refFlowName  + ",myFlowGuid=" + flowRef.myFlowGuid );
+	               + ",refFlowName=" + flowRef.refFlowName  + ",myFlowId=" + flowRef.myFlowId );
 }
 
 // flow-refが参照する先のFlowに向けて接続線を引く
@@ -113,14 +113,14 @@ function makeXmlPackage(targetFolder, targetFile, packageObj) {
 
 function transformXmlToJson(targetFolder, targetFile) {
 	//  nodeを起動してXML->JSON変換ロジックを呼び出し
-	var cmdLine = "node muleModelTransform\\transformToJson.js ";
+	var cmdLine = "node muleModelTransform\\muleTransformToJson.js ";
 	cmdLine = cmdLine + targetFolder + "\\" + targetFile + " ";
-	cmdLine = cmdLine + targetFile + ".json";
+	cmdLine = cmdLine + "json-output\\" + targetFile + ".json";
 	WScript.Echo("cmdLine=" + cmdLine);
 	shell.Run( cmdLine, 1 );
 
 	WScript.Sleep(500);
-	return targetFile + ".json";
+	return "json-output\\" + targetFile + ".json";
 }
 
 
@@ -166,18 +166,20 @@ function makeFlowElement(seq, curFlow, flowItem) {
 	flowItem.Gentype = "Java";
 	flowItem.TreePos = seq;
 	flowItem.Update();
-	var myFlowGuid = flowItem.ElementGUID;
+
+	// EAで Element.Update() で確定後、すぐ ElementGUIDを取得しようとするとたまにnullが返ってくるため、sleepで対応
+	WScript.Sleep(400);
 
 	// flows.components の数だけループ 
 	for (var i=0; i < curFlow.components.length; i++) {
 		var curCmp = curFlow.components[i];
 		var cmpItem = flowItem.Elements.AddNew(paddingZero(i+1, 2) + "_" + curCmp.name, "Action");
-		makeComponentElement(i+1, curCmp, cmpItem, myFlowGuid);
+		makeComponentElement(i+1, curCmp, cmpItem, flowItem.ElementID);
 
 		// flow-refの情報を記録する
 		if(curCmp.type == "flow-ref") {
 			var aFlowRef = {name: curCmp.name, guid: cmpItem.ElementGUID, refFlowName: curCmp.refFlowName,
-			    myFlowGuid: myFlowGuid};
+			    myFlowId: flowItem.ElementID};
 			allFlowRefList.push(aFlowRef);
 		}
 		flowItem.Elements.Refresh();
@@ -187,7 +189,7 @@ function makeFlowElement(seq, curFlow, flowItem) {
 	makeInnerFlowDiagram(flowItem);
 }
 
-function makeComponentElement(seq, curCmp, cmpItem, myFlowGuid) {
+function makeComponentElement(seq, curCmp, cmpItem, myFlowId) {
 	cmpItem.Stereotype = curCmp.type;
 	cmpItem.Tag = curCmp.docid;
 	cmpItem.Alias = curCmp.name;
@@ -198,12 +200,12 @@ function makeComponentElement(seq, curCmp, cmpItem, myFlowGuid) {
 	for (var i=0; i < curCmp.children.length; i++) {
 		var curCldCmp = curCmp.children[i];
 		var cmpCldItem = cmpItem.Elements.AddNew(paddingZero(i+1, 2) + "_" + curCldCmp.name, "Action");
-		makeComponentElement(i+1, curCldCmp, cmpCldItem);
+		makeComponentElement(i+1, curCldCmp, cmpCldItem, myFlowId);
 
 		// flow-refの情報を記録する
 		if(curCldCmp.type == "flow-ref") {
 			var aFlowRef = { name: curCldCmp.name, guid: cmpCldItem.ElementGUID, 
-				refFlowName: curCldCmp.refFlowName, myFlowGuid: myFlowGuid };
+				refFlowName: curCldCmp.refFlowName, myFlowId: myFlowId };
 			allFlowRefList.push(aFlowRef);
 		}
 		cmpItem.Elements.Refresh();
@@ -213,7 +215,20 @@ function makeComponentElement(seq, curCmp, cmpItem, myFlowGuid) {
 }
 
 function makeComponentNoteContent(curCmp) {
-	var noteContent = "DocId: " + curCmp.docid + "\r\nName: " + curCmp.name + "\r\n\r\n";
+	var noteContent = "";
+	
+	if (curCmp.docid != "") {
+		noteContent = noteContent + "DocId: " + curCmp.docid + "\r\n";
+	}
+
+	if (curCmp.name != "") {
+		noteContent = noteContent + "Name: " + curCmp.name + "\r\n";
+	}
+
+	if (curCmp.type == "ee_set-variable") {
+		noteContent = noteContent + "VariableName: " + curCmp.variableName + "\r\n";
+	}
+	noteContent = noteContent + "\r\n";
 
 	switch(curCmp.type) {
 		case "set-variable":
@@ -241,9 +256,9 @@ function makeInnerFlowDiagram(flowItem) {
 		var newConn = fromElemObj.Connectors.AddNew("", "ControlFlow");
 		newConn.ClientID = fromElemObj.ElementID;
 		newConn.SupplierID = toElemObj.ElementID;
-		WScript.Sleep(100);
 		newConn.Update();
 		fromElemObj.Update();
+		WScript.Sleep(100);
 	}
 
 	// Diagramオブジェクトを Flow要素配下に追加
@@ -260,9 +275,13 @@ function makeInnerFlowDiagram(flowItem) {
 	diagItem.DiagramObjects.Refresh();
 
 	// 自動レイアウト指定
-	Project.LayoutDiagramEx(diagItem.DiagramGUID, (8+32+1024), 4, 20, 20, true);
-	WScript.Sleep(300);
+	Project.LayoutDiagramEx(diagItem.DiagramGUID, (134217728+131072), 4, 20, 20, true);
+	WScript.Sleep(100);
 	diagItem.Update();
+
+	// 生成されたアクティビティ図をflow要素の子ダイアグラムとして指定する
+	flowItem.SetCompositeDiagram(diagItem.DiagramGUID);
+
 	// ダイアグラムを自動で閉じる
 	Repository.CloseDiagram(diagItem.DiagramID);
 }
@@ -298,20 +317,16 @@ function soluteFlowRef() {
 			// flow-refのコンポーネントからFlowオブジェクトへの依存線
 			var fromElemObj = getElementObjByGuid(flowRef.guid);
 			var toElemObj = getElementObjByGuid(allFlowHash[flowRef.refFlowName].guid);
+			makeConnector(fromElemObj, toElemObj);
 
-			if (fromElemObj != null && toElemObj != null) {
+			// flow-refのコンポーネントを保持するFlowから参照するFlowオブジェクトへの依存線
+			if( typeof flowRef.myFlowId != "undefined") {
+				fromElemObj = getElementObjById(flowRef.myFlowId);
 				makeConnector(fromElemObj, toElemObj);
-
-				// flow-refのコンポーネントを保持するFlowから参照するFlowオブジェクトへの依存線
-				fromElemObj = getElementObjByGuid(flowRef.myFlowGuid);
-				if( fromElemObj != null) {
-					makeConnector(fromElemObj, toElemObj);
-					makeInterFlowDiagram(fromElemObj, toElemObj); 
-				} else {
-					WScript.Echo( "skip for null object(from)" );
-				}
+				makeInterFlowDiagram(fromElemObj, toElemObj); 
+				
 			} else {
-				WScript.Echo( "skip for null object(from/to)" );
+				WScript.Echo( "skip for null object(from)" );
 			}
 		} else {
 			// TODO
@@ -357,9 +372,9 @@ function makeInterFlowDiagram(fromElemObj, toElemObj) {
 	diaObjItem.Update();
 
 	// 自動レイアウト指定
-	Project.LayoutDiagramEx(targetDiagramObj.DiagramGUID, (8+32+1024), 4, 20, 20, true);
-	WScript.Sleep(300);
+	Project.LayoutDiagramEx(targetDiagramObj.DiagramGUID, (134217728+524288), 4, 20, 20, true);
 	targetDiagramObj.Update();
+	WScript.Sleep(300);
 	// ダイアグラムを自動で閉じる
 	Repository.CloseDiagram(targetDiagramObj.DiagramID);
 }
