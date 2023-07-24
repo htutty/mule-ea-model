@@ -47,6 +47,7 @@ function parseFirstLevelNodes(nodes) {
         switch(node.tagName) {
             case "http:listener-config":
                 console.log("http:listener-config skipped");
+                break;
             case "flow":
                 // flow のパース処理
                 var flow = {name: node.getAttribute("name"), type:"flow"};
@@ -102,13 +103,6 @@ function parseInnerFlowNodes(nodes) {
                     cmp.children = parseInnerTransformNode(node.childNodes);
                     components.push(cmp);
                     break;
-                case "http:request":
-                    // http:request のパース処理
-                    var cmp = {name: node.getAttribute("doc:name"), type:"http_request",
-                                    docid: node.getAttribute("doc:id")};
-                    cmp.children = parseInnerHttpRequestNode(node.childNodes);
-                    components.push(cmp);
-                    break;
                 case "error-handler":
                     // http:request のパース処理
                     var cmp = {name: "error-handler", type:"error-handler",
@@ -145,6 +139,15 @@ function isLayerFreeComponentProcess(node, components) {
             components.push(cmp);
             isFree=true;
             break;
+        case "raise-error":
+            // raise-error のパース処理 
+            var cmp = {name: node.getAttribute("doc:name"), type:"raise-error", 
+                        docid: node.getAttribute("doc:id"), errorType: node.getAttribute("type"), 
+                        description: node.getAttribute("description")};
+            cmp.children = [];
+            components.push(cmp);
+            isFree=true;
+            break;
         case "set-variable":
             // set-variable のパース処理
             var cmp = {name: node.getAttribute("doc:name"), type:"set-variable",
@@ -154,13 +157,19 @@ function isLayerFreeComponentProcess(node, components) {
             components.push(cmp);
             isFree=true;
             break;
+        case "http:request":
+            // http:request のパース処理
+            var cmp = {name: node.getAttribute("doc:name"), type:"http_request",
+                            docid: node.getAttribute("doc:id")};
+            cmp.children = [];
+            components.push(cmp);
+            break;
     }
     return isFree;
 }
 
 // <try>の内部ノードをパースする
 function parseInnerTryNode(nodes) {
-    let children = [];
     let components = [];
 
     for(var i=0; i < nodes.length; i++) {
@@ -180,17 +189,17 @@ function parseInnerTryNode(nodes) {
                 cmp.children = parseInnerChoiceNode(node.childNodes);
                 components.push(cmp);
                 break;
-            case "ee:transform":
-                // ee:transform のパース処理
-                var cmp = {name: node.getAttribute("doc:name"), type:"transform",
-                                docid: node.getAttribute("doc:id")};
-                cmp.children = parseInnerTransformNode(node.childNodes);
+            case "error-handler":
+                // error-handler のパース処理
+                var cmp = {name: "error-handler", type:"error-handler",
+                            docid: "" };
+                cmp.children = parseInnerErrorHandlerNode(node.childNodes);
                 components.push(cmp);
                 break;
         }
     }
 
-    return children;
+    return components;
 }
 
 // <choice>タグの内部ノードをパースする
@@ -261,14 +270,14 @@ function parseInnerTransformNode(nodes) {
             case "ee:message":
                 // ee:message のパース処理 ()
                 var cmp = {name: "message", type:"message",
-                            docid: node.getAttribute("doc:id")};
+                            docid: "" };
                 cmp.children = parseInnerMessageNode(node.childNodes);
                 components.push(cmp);
                 break;
             case "ee:variables":
                 // ee:variables のパース処理 ()
                 var cmp = {name: "variables", type:"variables",
-                            docid: node.getAttribute("doc:id")};
+                            docid: "" };
                 cmp.children = parseInnerVariablesNode(node.childNodes);
                 components.push(cmp);
                 break;
@@ -322,8 +331,8 @@ function parseInnerVariablesNode(nodes) {
         switch(node.tagName) {
             case "ee:set-variable":
                 // ee:set-variable のパース処理 ()
-                var cmp = {name: "set-variable", type:"ee_set-variable",
-                            docid: node.getAttribute("doc:id"), dwtext: node.textContent };
+                var cmp = {name: "set-variable", type:"ee_set-variable", docid: "",
+                            variableName: node.getAttribute("variableName"), dwtext: node.textContent };
                 cmp.children = [];
                 components.push(cmp);
                 break;
@@ -353,11 +362,13 @@ function parseInnerErrorHandlerNode(nodes) {
                 var cmp = {name: node.getAttribute("doc:name"), type:"on-error-propagate",
                             docid: node.getAttribute("doc:id"), enableNotifications: node.getAttribute("enableNotifications"),
                             logException: node.getAttribute("logException")};
-                cmp.children = [];
+                cmp.children = parseInnerFlowNodes(node.childNodes);
                 components.push(cmp);
                 break;
         }
     }
 
-    return children;
+    return components;
 }
+
+
