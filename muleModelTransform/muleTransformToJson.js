@@ -170,36 +170,7 @@ function isLayerFreeComponentProcess(node, components) {
 
 // <try>の内部ノードをパースする
 function parseInnerTryNode(nodes) {
-    let components = [];
-
-    for(var i=0; i < nodes.length; i++) {
-        const node = nodes[i];
-
-        if(node.tagName == undefined) {
-            continue;
-        }
-
-        console.log("- node = " + node.tagName);
-
-        switch(node.tagName) {
-            case "choice":
-                // choice のパース処理
-                var cmp = {name: node.getAttribute("doc:name"), type:"choice_",
-                            docid: node.getAttribute("doc:id")};
-                cmp.children = parseInnerChoiceNode(node.childNodes);
-                components.push(cmp);
-                break;
-            case "error-handler":
-                // error-handler のパース処理
-                var cmp = {name: "error-handler", type:"error-handler",
-                            docid: "" };
-                cmp.children = parseInnerErrorHandlerNode(node.childNodes);
-                components.push(cmp);
-                break;
-        }
-    }
-
-    return components;
+    return parseInnerFlowNodes(nodes);
 }
 
 // <choice>タグの内部ノードをパースする
@@ -220,8 +191,8 @@ function parseInnerChoiceNode(nodes) {
             switch(node.tagName) {
                 case "when":
                     // when のパース処理 ()
-                    var cmp = {name: "when", type:"when",
-                                docid: node.getAttribute("doc:id")};
+                    var cmp = {name: getNameFromExpr(node.getAttribute("expression")), type:"when",
+                                docid: node.getAttribute("doc:id"), expression: node.getAttribute("expression")};
                     cmp.children = parseInnerChoiceNode(node.childNodes);
                     components.push(cmp);
                     break;
@@ -331,7 +302,7 @@ function parseInnerVariablesNode(nodes) {
         switch(node.tagName) {
             case "ee:set-variable":
                 // ee:set-variable のパース処理 ()
-                var cmp = {name: "set-variable", type:"ee_set-variable", docid: "",
+                var cmp = {name: node.getAttribute("variableName"), type:"ee_set-variable", docid: "",
                             variableName: node.getAttribute("variableName"), dwtext: node.textContent };
                 cmp.children = [];
                 components.push(cmp);
@@ -341,7 +312,6 @@ function parseInnerVariablesNode(nodes) {
 
     return components;
 }
-
 
 
 function parseInnerErrorHandlerNode(nodes) {
@@ -371,4 +341,15 @@ function parseInnerErrorHandlerNode(nodes) {
     return components;
 }
 
-
+// when専用： expression から名前となる文字列を取得
+function getNameFromExpr(str) {
+    // パラメータの文字列を"\n"で分割して１行目の文字列を取得する
+    var lines = str.split("\n");
+    if( lines[0].length > 50 ) {
+        // 50文字目までの後ろに ".." を付けた文字列を返却
+        return lines[0].substring(0, 50) + "..";
+    } else {
+        // 50文字以下ならそのまま1行目の文字列を返却
+        return lines[0];
+    }
+}
