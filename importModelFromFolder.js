@@ -167,8 +167,8 @@ function makeFlowElement(seq, curFlow, flowItem) {
 	flowItem.TreePos = seq;
 	flowItem.Update();
 
-	// EAで Element.Update() で確定後、すぐ ElementGUIDを取得しようとするとたまにnullが返ってくるため、sleepで対応
-	WScript.Sleep(400);
+	// EAで Element.Update() した後、次の処理に移るまでに少しsleepを入れる 
+	WScript.Sleep(200);
 
 	// flows.components の数だけループ 
 	for (var i=0; i < curFlow.components.length; i++) {
@@ -239,6 +239,9 @@ function makeComponentNoteContent(curCmp) {
 			break;
 		case "ee_set-variable":
 			noteContent = noteContent + convLf2Crlf(curCmp.dwtext);
+			break;
+		case "when":
+			noteContent = noteContent + "expression=" + convLf2Crlf(curCmp.expression);
 			break;
 	}
 
@@ -323,6 +326,9 @@ function soluteFlowRef() {
 			if( typeof flowRef.myFlowId != "undefined") {
 				fromElemObj = getElementObjById(flowRef.myFlowId);
 				makeConnector(fromElemObj, toElemObj);
+
+				addFlowInnerDiagram(fromElemObj, toElemObj); 
+
 				makeInterFlowDiagram(fromElemObj, toElemObj); 
 				
 			} else {
@@ -348,6 +354,32 @@ function makeConnector(fromElemObj, toElemObj) {
 		WScript.Echo( "made Connector: guid=" + newConn.ConnectorGUID + ", fromId=" + fromElemObj.ElementID + ",toId=" + toElemObj.ELementID );
 
 }
+
+// Flow内のダイアグラムにflow-refが参照するFlowオブジェクトを追加
+function addFlowInnerDiagram(fromElemObj, toElemObj) {
+
+	// 対象のダイアグラムを取得
+	var targetDiagramObj = {};
+	if (fromElemObj.Diagrams.Count > 0) {
+		targetDiagramObj = fromElemObj.Diagrams.GetAt(0);
+	} else {
+		targetDiagramObj = fromElemObj.Diagrams.AddNew(fromElemObj.Name, "Activity");
+		fromElemObj.Diagrams.Refresh();
+		fromElemObj.Update();
+	}
+
+	var diaObjItem = targetDiagramObj.DiagramObjects.AddNew(toElemObj.Name, "");
+	diaObjItem.ElementID = toElemObj.ElementID;
+	diaObjItem.Update();
+
+	// 自動レイアウト指定
+	Project.LayoutDiagramEx(targetDiagramObj.DiagramGUID, (134217728+131072), 4, 20, 20, true);
+	targetDiagramObj.Update();
+	WScript.Sleep(200);
+	// ダイアグラムを自動で閉じる
+	Repository.CloseDiagram(targetDiagramObj.DiagramID);
+}
+
 
 // .xmlファイルのパッケージにダイアグラムを追加し、Flow間のflow-refによる
 function makeInterFlowDiagram(fromElemObj, toElemObj) {
